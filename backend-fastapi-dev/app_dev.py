@@ -4,7 +4,7 @@ Simple FastAPI app to download opportunity documents from Azure Blob Storage.
 """
 
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceNotFoundError
@@ -12,24 +12,43 @@ from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.ai.documentintelligence.models import AnalyzeDocumentRequest, DocumentContentFormat
 from azure.core.credentials import AzureKeyCredential
 from dotenv import load_dotenv
+from azure.ai.projects import AIProjectClient
+from azure.identity import DefaultAzureCredential
+from pydantic import BaseModel
+
 import io
+import time
+import json
+import uuid
 
 # Load environment variables from .env file
 load_dotenv()
 
-# ---------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------
+# Blob Storage Configuration
 AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
 CONTAINER_NAME = os.getenv("CONTAINER_NAME", "dev-opportunity-documents")
+
+# Document Intelligence Configuration
 DOC_INTELLIGENCE_ENDPOINT = os.getenv("DOC_INTELLIGENCE_ENDPOINT")
 DOC_INTELLIGENCE_KEY = os.getenv("DOC_INTELLIGENCE_KEY")
 
+# Microsoft Foundry Agentic Configuration
+FOUNDRY_PROJECT_ENDPOINT = os.getenv("FOUNDRY_PROJECT_ENDPOINT")
+PRESALES_ANALYST_AGENT = os.getenv("PRESALES_ANALYST_AGENT")
+HTML_JSON_FORMATTER_AGENT = os.getenv("HTML_JSON_FORMATTER_AGENT")
+
+
+# Azure Blob Storage Validation
 if not AZURE_STORAGE_CONNECTION_STRING:
     raise RuntimeError("AZURE_STORAGE_CONNECTION_STRING is not set in .env")
 
+# Document Intelligence Validation
 if not DOC_INTELLIGENCE_ENDPOINT or not DOC_INTELLIGENCE_KEY:
     raise RuntimeError("Document Intelligence credentials are not set in .env")
+
+# Microsoft Foundry Agentic Validation
+if not all([FOUNDRY_PROJECT_ENDPOINT, PRESALES_ANALYST_AGENT, HTML_JSON_FORMATTER_AGENT]):
+    raise RuntimeError("Foundry endpoint or Agent names are not set in .env")
 
 # Initialize Blob Service Client once at startup
 blob_service_client = BlobServiceClient.from_connection_string(
@@ -41,6 +60,15 @@ doc_intelligence_client = DocumentIntelligenceClient(
     endpoint=DOC_INTELLIGENCE_ENDPOINT,
     credential=AzureKeyCredential(DOC_INTELLIGENCE_KEY),
 )
+
+# Initialize Foundry project client once at startup
+project_client = AIProjectClient(
+    endpoint=FOUNDRY_PROJECT_ENDPOINT,
+    credential=DefaultAzureCredential(),
+)
+
+# Get the OpenAI-compatible client (new Foundry Responses API)
+openai_client = project_client.get_openai_client()
 
 # ---------------------------------------------------------------------
 # FastAPI App
@@ -240,6 +268,160 @@ def extract_document(opportunity_id: str, file_name: str):
             status_code=500,
             detail=f"Error extracting document: {str(e)}",
         )
+
+
+# ---------------------------------------------------------------------
+# Request body model for /analyze-opportunity
+# ---------------------------------------------------------------------
+class AnalyzeRequest(BaseModel):
+    opportunity_id: str
+    file_name: str
+    markdown_content: str
+
+# Simple in-memory job store (fine for dev/testing).
+# For production, replace with Cosmos DB or Azure Table Storage.
+JOBS: dict = {}
+
+
+# ---------------------------------------------------------------------
+# Helper: Run a Foundry agent and wait for its text response
+# ---------------------------------------------------------------------
+def run_agent(agent_ref: str, user_message: str, timeout_seconds: int = 420) -> str:
+    """
+    Call a published Foundry agent using the DDG-proven pattern:
+    agent_ref format is 'agent-name:version' (e.g. 'presales-analyst-agent:4').
+    """
+    parts = agent_ref.split(":")
+    agent_name = parts[0]
+    agent_version = parts[1] if len(parts) > 1 else "1"
+
+    response = openai_client.responses.create(
+        input=[
+            {"type": "message", "role": "user", "content": user_message}
+        ],
+        extra_body={
+            "agent_reference": {
+                "name": agent_name,
+                "version": agent_version,
+                "type": "agent_reference"
+            }
+        }
+    )
+    return response.output_text
+
+
+# ---------------------------------------------------------------------
+# Background worker: runs the two-agent pipeline
+# ---------------------------------------------------------------------
+def process_analysis_job(job_id: str, payload: AnalyzeRequest):
+    try:
+        JOBS[job_id]["status"] = "analyzing"
+
+        # ---- Agent 1: Presales Analyst ----
+        presalesAnalystAgent_input = f"""
+        Analyze the following tender/RFP content and produce your full 5-step presales assessment. Ground all Microsoft claims with web search.
+
+        Opportunity ID: {payload.opportunity_id}
+        Source File: {payload.file_name}
+
+        ===== EXTRACTED DOCUMENT CONTENT =====
+
+        {payload.markdown_content}
+
+        ===== END OF DOCUMENT =====
+        """
+        presalesAnalystAgent_output = run_agent(PRESALES_ANALYST_AGENT, presalesAnalystAgent_input)
+
+        JOBS[job_id]["status"] = "formatting"
+
+        # ---- Agent 2: JSON Formatter ----
+        htmlJsonFormatterAgent_input = f"""
+        Convert the following presales analysis into the required JSON output.
+
+        Opportunity ID: {payload.opportunity_id}
+
+        ===== PRESALES ANALYSIS =====
+
+        {presalesAnalystAgent_output}
+
+        ===== END OF ANALYSIS =====
+        """
+        htmlJsonFormatterAgent_output = run_agent(HTML_JSON_FORMATTER_AGENT, htmlJsonFormatterAgent_input)
+
+        # ---- Parse Agent 2 JSON (strip code fences if any) ----
+        cleaned = htmlJsonFormatterAgent_output.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("```")[1]
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:]
+            cleaned = cleaned.strip()
+
+        email_json = json.loads(cleaned)
+
+        JOBS[job_id]["status"] = "completed"
+        JOBS[job_id]["email_json"] = email_json
+
+    except json.JSONDecodeError as e:
+        JOBS[job_id]["status"] = "failed"
+        JOBS[job_id]["error"] = f"Agent 2 returned invalid JSON: {str(e)}"
+    except Exception as e:
+        JOBS[job_id]["status"] = "failed"
+        JOBS[job_id]["error"] = f"Pipeline error: {str(e)}"
+
+
+# ---------------------------------------------------------------------
+# STEP A: Kick off the job — returns instantly with a job_id
+# ---------------------------------------------------------------------
+@app.post("/analyze-opportunity")
+def start_analysis(payload: AnalyzeRequest, background_tasks: BackgroundTasks):
+    """Start the analysis in the background. Returns a job_id immediately."""
+    job_id = str(uuid.uuid4())
+    JOBS[job_id] = {
+        "status": "queued",
+        "opportunity_id": payload.opportunity_id,
+        "email_json": None,
+        "error": None,
+    }
+    background_tasks.add_task(process_analysis_job, job_id, payload)
+    return {"job_id": job_id, "status": "queued"}
+
+
+# ---------------------------------------------------------------------
+# STEP B: Poll this to check progress (Power Automate polls every ~15s)
+# ---------------------------------------------------------------------
+@app.get("/analyze-opportunity/{job_id}/status")
+def get_analysis_status(job_id: str):
+    """Return the current status of an analysis job."""
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    return {
+        "job_id": job_id,
+        "status": job["status"],   # queued | analyzing | formatting | completed | failed
+        "opportunity_id": job["opportunity_id"],
+        "error": job["error"],
+    }
+
+
+# ---------------------------------------------------------------------
+# STEP C: Fetch the final result once status == completed
+# ---------------------------------------------------------------------
+@app.get("/analyze-opportunity/{job_id}/result")
+def get_analysis_result(job_id: str):
+    """Return the final email_json once the job is completed."""
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    if job["status"] == "failed":
+        raise HTTPException(status_code=500, detail=job["error"])
+    if job["status"] != "completed":
+        raise HTTPException(status_code=409, detail=f"Job not ready. Current status: {job['status']}")
+    return {
+        "job_id": job_id,
+        "status": "completed",
+        "opportunity_id": job["opportunity_id"],
+        "email_json": job["email_json"],
+    }
 
 
 # ---------------------------------------------------------------------
