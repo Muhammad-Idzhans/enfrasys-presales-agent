@@ -1,0 +1,276 @@
+Convert the following presales analysis into the required JSON output.
+
+Opportunity ID: 59b94662-bf64-429b-99f8-44999a9d8066
+
+===== PRESALES ANALYSIS =====
+
+## Executive note — actions performed
+I reviewed the supplied RFP (EPF — Intelligent Document Processing) and validated Microsoft services and pricing references using Microsoft official pages. I called Azure product/pricing docs to ground service recommendations and quotes — citations are included inline in STEP 3 and STEP 4. Where exact region pricing or SKU totals cannot be derived from the public pages without the Azure Pricing Calculator inputs, I mark them as UNVERIFIED and list the assumptions you must confirm with the calculator before submission.
+
+---
+
+## STEP 1 — Understand the Opportunity
+
+- Client name and organization
+  - Kumpulan Wang Simpanan Pekerja (KWSP / Employees Provident Fund, “EPF”), Digital Enterprise Solutions Department.
+
+- Industry and sector
+  - Public sector (Malaysian federal statutory body / pension fund).
+
+- Project title and core objective
+  - Title: Intelligent Document Processing (IDP).
+  - Core objective: Replace manual keying of employer salary records into Enforcement Management System (EMS) by implementing an enterprise-grade cloud IDP platform that ingests multi-format salary records, extracts specified metadata (employee name, salary components, etc.), provides human-in-the-loop (HITL) validation, and integrates outputs with ECM (Newgen OmniDocs) and EMS via REST API or SFTP. Solution must be enterprise-ready, secure (PDPA-sensitive), single-tenant option, and support future IDP use cases.
+
+- Key scope items and deliverables (summary)
+  - Advisory & consultation, architecture and integration design.
+  - IDP SaaS platform provisioning (Dev/UAT/Prod logical/physical separation, single-tenant option).
+  - Ingestion channels: web upload UI, REST API, email ingestion, SFTP, M365/SharePoint, batch/bulk upload.
+  - Pre-processing (deskew, de-noise, rotation), OCR (multi-language: English, Bahasa Melayu), handwriting recognition (optional), table & line-item extraction, key-value extraction, document classification, LLM-based contextual extraction (optional).
+  - HITL validation UI with field-level confidence scoring and routing.
+  - Workflow/orchestration, rule-based routing, exception handling, audit trail.
+  - Integrations: ECM (REST API/SFTP), EMS (SFTP flatfile), Azure AD SSO (MFA), API Gateway and internal EPF systems.
+  - Security: ISO27001/27018/SOC2, AES-256 at rest, TLS1.2+ in transit, BYOK/CMK, RBAC, IP whitelisting, no customer data used for vendor model training without consent.
+  - Operational features: dashboards, SLA 99.9% availability, performance metrics, backup/DR, HA.
+  - Training, documentation, pen-testing, project management, 6-month warranty + 5-year maintenance subscription (3+2).
+  - Capacity targets: 120 end-users, 2 sysadmins, 150,000 pages/year baseline, average processing SLA: <3 minutes per 10-page transaction, baseline extraction accuracy >= 80%.
+
+- Timeline / deadline indicators
+  - RFP issued March 2026.
+  - RFP closing date: April 2026 (tentative).
+  - Evaluation: May 2026.
+  - Award: August 2026.
+  - Project delivery constraint: All works completed within five (5) months from kick-off; project must start no later than two weeks from Kick-Off; warranty 6 months post final acceptance. (See RFP Section 4.1 / 4.3 / 4.4.)
+
+- Budget indicators
+  - No explicit budget figure in the RFP. RFP requires vendors to propose one-time project cost and 5-year (3+2) maintenance subscription, include taxes (SST) in pricing. Vendors must show catalogue pricing for extra pages/users/man-days.
+
+- Mandatory requirements vendor MUST meet
+  - Back-to-back arrangement/active relationship with product principal and provide partner/certification letters.
+  - At least one IDP implementation in past five years (local or international) — provide references.
+  - Vendor solution must have ISO 27001, ISO 27018 and be able to provide SOC 2 Type 2 report.
+  - Compliance attestations from principal that customer data is not used for model training without consent.
+  - Administrative: MOF registration under specified Kod Bidang, SSM registration, paid-up capital >= RM 670,000, EPF contributions not in default.
+
+---
+
+## STEP 2 — Feasibility Verdict
+
+Recommendation: CONDITIONAL GO (pursue with competitive proposal) — see rationale below.
+
+- Fit with Enfrasys strengths
+  - Good fit. Enfrasys’ Microsoft-first strengths (Azure, Microsoft Foundry / Document Intelligence, Power Platform, M365 / SharePoint integration, Azure AD SSO, Fabric for analytics) map directly to almost all EPF functional and technical requirements.
+  - Microsoft Document Intelligence (Document Understanding/form extraction) supports custom model training, key-value/table extraction, confidence scoring, and HITL patterns (via orchestration + UI), and Foundry/AI Search can support knowledge/LLM context features. Azure platform provides required security controls (Key Vault for CMK/BYOK, Azure AD for SSO, role-based access control, regional deployment).
+
+- Can this be delivered with a Microsoft-first stack?
+  - Yes. A Microsoft-first architecture can cover all major requirements:
+    - Document extraction: Azure AI Document Intelligence (Form Recognizer successor).
+    - Storage: Azure Blob Storage (secured with encryption, access controls).
+    - Secrets: Azure Key Vault (BYOK).
+    - Authentication/SSO: Microsoft Entra / Azure AD (MFA via Microsoft Authenticator).
+    - HITL UI: ASP.NET / Azure App Service or Azure Container Apps / Azure Front Door with storage backend (or Power Apps for light UI but custom web application preferred for performance).
+    - Workflow/orchestration: Azure Logic Apps / Azure Functions / Azure Durable Functions.
+    - Search/LLM contextualization: Azure AI Search (Foundry IQ) and Azure OpenAI or Foundry models (subject to EPF AI governance).
+    - Monitoring and dashboards: Azure Monitor / Application Insights / Power BI (or Microsoft Fabric for advanced analytics).
+    - Integration: Secure SFTP (Azure SFTP on Blob via SFTP support or Azure File Storage + gateway) and REST APIs via Azure API Management.
+  - All above components are GA / actively supported (sources cited in STEP 3).
+
+- Are the timeline and mandatory requirements realistic?
+  - Timeline: Aggressive but feasible. Five months total (Dev/UAT/Prod + interfaces + POC + integration) is realistic if:
+    - EPF provides EMS/ECM flatfile formats and test endpoints early.
+    - Vendor has prebuilt connectors and IDP templates (document types) to accelerate training.
+    - Dedicated Enfrasys project team and EPF SMEs are available (fast sign-offs).
+  - Mandatory requirements: Must secure principal partner certification/back-to-back support (Microsoft partner status + Azure competency) and produce ISO/SOC attestations. Enfrasys must confirm partnerships and provide required security evidence.
+
+- Key risks
+  1. Data residency / PDPA & PII constraint: RFP mandates PII not be stored in cloud — architecture must perform extraction in a processing model that prevents persistent PII in cloud storage (use transient processing, mask/minimize storage). This complicates typical SaaS IDP flows and requires careful design (e.g., tokenization on ingest, ephemeral storage, encrypted temporary blobs with automated purge).
+  2. Integration with legacy EMS/ECM (Newgen OmniDocs): flatfile format and transfer timing may need multiple iterations; offline continuity requirements mean queueing and reconciliation flows must be tested thoroughly.
+  3. SLA penalties and LADs are severe (10% of annual contract value *12 months; LAD formula with minimum RM1,000/day). Delivery & ops runbook must mitigate these risks (sufficient HA, monitoring, runbooks, capacity planning, disaster recovery).
+  4. EPF AI governance — LLM usage restricted; vendor must ensure no training on EPF data without consent and provide attestations.
+
+Conclusion: Pursue the opportunity if Enfrasys can provide:
+- Microsoft partner evidence and principal back-to-back support (obligatory).
+- Clear architecture addressing PII residency (transient processing or in-country tenant + encryption + BYOK).
+- A realistic fixed-price implementation with contingency and a scalable subscription model.
+
+---
+
+## STEP 3 — Recommended Tech Stack (MICROSOFT-FIRST) — verified references included
+
+Architecture summary (Southeast Asia default deployment region unless otherwise requested — region availability UNVERIFIED per service; confirm via Azure products-by-region page before final design):
+
+High-level flow:
+Upload UI / ingestion → Ingest storage (Blob) → Document Intelligence processing (Document extraction + custom models) → HITL Validation UI (web app) → Orchestration → ECM (Newgen) via REST API and EMS via SFTP flatfile → Logging/Monitoring & dashboards → Archive / retention.
+
+Microsoft-first components and role:
+
+1. Azure AI Document Intelligence (Document extraction / OCR / custom models)
+   - Use for OCR, key-value extraction, table/line-item extraction, document classification, confidence score, custom model training.
+   - Official product/pricing doc: https://azure.microsoft.com/en-gb/pricing/details/document-intelligence/ and AI model catalog. ([azure.microsoft.com](https://azure.microsoft.com/en-gb/pricing/details/document-intelligence/))
+
+2. Azure Blob Storage
+   - Storage of uploaded documents (encrypted at rest, lifecycle management for retention/archive). Use Hot/Cool/Archive tiers and set lifecycle policies to purge PII-carrying content as required.
+   - Official pricing/overview: https://azure.microsoft.com/en-us/pricing/details/storage/blobs/ . ([azure.microsoft.com](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/))
+
+3. Azure Key Vault
+   - Customer-managed keys (BYOK) for data-at-rest encryption, secrets for API keys, and HSM-protected keys if required.
+   - Pricing & product: https://azure.microsoft.com/en-us/pricing/details/key-vault/ and product page. ([azure.microsoft.com](https://azure.microsoft.com/en-us/pricing/details/key-vault/))
+
+4. Microsoft Entra ID / Azure Active Directory
+   - SSO, RBAC, MFA (Microsoft Authenticator) integration for EPF users.
+   - (Note: licensing for Azure AD features may be part of EPF tenancy; verify with EPF). (See Azure AD docs — UNVERIFIED direct pricing in this response — confirm). [If needed we will cite Azure Entra pages during proposal drafting.]
+
+5. Web application / HITL UI
+   - Implement as Azure App Service (or Azure Kubernetes Service / Azure Container Apps) for the validation UI and admin consoles (system admins, model training labeling).
+   - Use Azure Front Door (optional) for global load balancing and WAF.
+
+6. Workflow & Orchestration
+   - Azure Logic Apps for event-driven orchestration, or Azure Durable Functions for more complex flows (retries, re-routing), with Azure Service Bus/Queue for resilient processing and offline continuity.
+   - Use Azure API Management to expose secure REST APIs for ingestion and EPF integration.
+
+7. Secure SFTP Integration
+   - Use Azure Blob SFTP support or deploy an SFTP gateway (e.g., SFTP to Blob solution or an SFTP server in a secure subnet) to deliver flatfiles to EMS via EPF SFTP gateway.
+   - Confirm EPF SFTP gateway expectations; the RFP requires SFTP support.
+
+8. Search / LLM contextualization
+   - Azure AI Search / Foundry IQ (Azure AI Search + knowledge capabilities) to support free-text understanding, document indexing and retrieval for LLM-based contextual features. Use Foundry/AI Search for knowledge retrieval and for “zero-shot / few-shot” contextual extraction if requested.
+   - Pricing and sku guide: https://learn.microsoft.com/en-us/azure/search/search-sku-tier and Foundry page. ([learn.microsoft.com](https://learn.microsoft.com/en-us/azure/search/search-sku-tier))
+
+9. Monitoring, logging & analytics
+   - Azure Monitor / Application Insights for telemetry, logging and alerts.
+   - Power BI or Microsoft Fabric for dashboards and reporting on processing volumes, accuracy, SLA metrics.
+   - Use Azure Monitor alerts integrated with EPF email.
+
+10. Security, compliance and governance
+    - Azure Policy / Azure Blueprints for environment separation (Dev/UAT/Prod), compliance guardrails.
+    - Use Azure AD Conditional Access + MFA.
+    - Provide SOC 2 / ISO 27001 evidence as specified (vendor/principal).
+    - Penetration testing to be delivered as required by EPF.
+
+11. DevOps & CI/CD
+    - Azure DevOps or GitHub Actions for CI/CD, release pipelines, controlled promotion across Dev/UAT/Prod.
+
+External products (only if Microsoft lacks equivalent or integration is required):
+- Newgen OmniDocs: ECM vendor is Newgen (EPF’s current ECM). We will integrate via REST API or SFTP as per RFP. No replacement. (Integration required; Newgen is external — vendor must coordinate with Newgen). Source: RFP content.
+- RPA connectors (Blue Prism) — optional. The RFP mentions RPA integration; if required we can use Blue Prism connectors (external), or Microsoft Power Automate / Power Automate Desktop as a Microsoft substitute where appropriate.
+
+Partnership / principal requirements:
+- Vendor must provide Microsoft partner proof (Azure competency) and back-to-back principal support for any third-party components. RFP requires partner letters and compliance attestations.
+
+Service availability and quotas:
+- Confirm Document Intelligence service quotas and recommended throughput; Microsoft docs for quotas: https://learn.microsoft.com/.../service-limits (Document Intelligence quotas/limits). ([docs.azure.cn](https://docs.azure.cn/en-us/ai-services/document-intelligence/service-limits))
+
+Region availability note:
+- Per Decision Boundary rules: Region availability MUST be verified per-service in Microsoft’s products-by-region page. For this proposal, default region = Southeast Asia; confirm final service availability for each service in Southeast Asia via Azure products-by-region page (region availability UNVERIFIED here; confirm before final bid).
+
+Official references used to verify recommended services (select):
+- Azure AI Document Intelligence (pricing & product): https://azure.microsoft.com/en-gb/pricing/details/document-intelligence/ and AI model catalog. ([azure.microsoft.com](https://azure.microsoft.com/en-gb/pricing/details/document-intelligence/))
+- Azure Blob Storage (pricing/tiers): https://azure.microsoft.com/en-us/pricing/details/storage/blobs/ . ([azure.microsoft.com](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/))
+- Azure Key Vault: https://azure.microsoft.com/en-us/pricing/details/key-vault/ and product page. ([azure.microsoft.com](https://azure.microsoft.com/en-us/pricing/details/key-vault/))
+- Azure AI Search / Foundry IQ (pricing/sku guide & capabilities): https://learn.microsoft.com/en-us/azure/search/search-sku-tier and https://azure.microsoft.com/en-us/pricing/details/search/ . ([learn.microsoft.com](https://learn.microsoft.com/en-us/azure/search/search-sku-tier))
+- Document Intelligence quotas & service limits: https://learn.microsoft.com/.../service-limits (Document Intelligence). ([docs.azure.cn](https://docs.azure.cn/en-us/ai-services/document-intelligence/service-limits))
+
+---
+
+## STEP 4 — Estimated Cost (RM) — approach, assumptions and ranges
+
+Important: Microsoft pricing pages show pricing per region and per SKU, often in USD; final RM totals require:
+- Confirming EPF subscription (MSP / Azure EA discounts).
+- Selecting exact SKUs (Document Intelligence consumption vs. custom model, App Service tier or AKS nodes, region, data storage tier, number of transactions per month).
+- Using Azure Pricing Calculator to produce precise prices (I recommend we complete the calculator with EPF’s tenancy/discounts before final tender).
+
+Below I give a practical estimate range with assumptions. Where I could not compute exact figures from the public pages without usage numbers and SKUs, I mark UNVERIFIED and show the assumptions you must confirm.
+
+Assumptions (explicit):
+- Processing baseline = 150,000 pages/year (RFP). Assume “page” equals a Document Intelligence analyze/read operation. (RFP baseline.)
+- Average document size = small (10 pages per transaction on SLA metric). For throughput planning we assume concurrency to meet <3-minute processing per 10-page transaction.
+- Storage: store documents temporarily (30 days) and archive selected ones to Cool/Archive; assume average stored data = 1 TB active, 3 TB archived over time (adjustable).
+- Enfrasys labor rates and local costs approximated from previous Malaysia public-sector projects (actual man-day rates must be provided by Enfrasys finance).
+- Exchange rate: not applied here; final conversion to RM must be based on the day-of-bid FX. (I avoid inventing exchange rates.)
+
+A. One-time development (project implementation) — estimate range (RM)
+- Activities: advisory & architecture, environment provisioning (Dev/UAT/Prod), custom Document Intelligence model training for salary records, ingest/upload UI and HITL validation UI, integration with ECM & EMS, testing (SIT/UAT), change management, documentation, training, POC, go-live support.
+- Man-days estimate (indicative): 12–20 skilled resources over 3–5 months (Project Manager, 2x IDP engineers, 2x integration engineers, 2x front-end/backend devs, QA, security lead, solution architect).
+- Cost range: RM 250,000 — RM 650,000 (one-time).
+  - Notes: This range depends heavily on local man-day rates and reuse of prebuilt components. If Enfrasys reuses an existing Microsoft-based accelerators/templates, lower end is achievable. If full custom UI + integrations are required, higher end likely.
+
+B. Infrastructure (monthly & annual) — estimate ranges (RM)
+- Core infra items to budget (monthly):
+  - Azure AI Document Intelligence consumption (processing). Public pricing pages show pay-per-page/operation models — actual cost depends on page and custom/custom model usage. UNVERIFIED until calculator run.
+    - Rough consumption estimate: if Document Intelligence USD rate per 1,000 pages is applied (example rates vary by SKU and region), annual cost could be in the range of RM 20k — RM 100k depending on SKU and usage. (UNVERIFIED — must compute via calculator.)
+    - Source: Document Intelligence pricing page (see citation). ([azure.microsoft.com](https://azure.microsoft.com/en-gb/pricing/details/document-intelligence/))
+  - Azure Blob Storage (1 TB active, lifecycle to cool/archive): typical cost could be RM 400 — RM 2,000 / month depending on tiers/region and operations. (UNVERIFIED — see Blob pricing page for specific GB/month rates to compute per region). ([azure.microsoft.com](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/))
+  - App Service / AKS / Container Apps for HITL UI, API Management, Logic Apps, Service Bus — combined monthly RM 2,000 — RM 8,000 depending on tiers (UNVERIFIED).
+  - Key Vault: RM 100 — RM 1,000 / month depending on operations & HSM usage. (UNVERIFIED — see Key Vault pricing page.) ([azure.microsoft.com](https://azure.microsoft.com/en-us/pricing/details/key-vault/))
+  - Azure Monitor / Log retention and Power BI / Fabric: RM 1,000 — RM 6,000 / month depending on retention/usage.
+- Total Infrastructure monthly estimate: RM 4,000 — RM 18,000 / month.
+- Total Infrastructure annual estimate: RM 48,000 — RM 216,000 / year.
+
+C. Licensing / subscription (annual)
+- Document Intelligence subscription / consumption: RM 20,000 — RM 120,000 / year (UNVERIFIED — must size via Azure calculator).
+- Support & maintenance subscription (vendor-managed): Include in annual charge: RM 120,000 — RM 400,000 / year (covers vendor L2/L3 support, man-days, minor enhancements). The RFP asks for 3+2 years subscription; vendors typically price maintenance as a % of project + cloud cost.
+- Total Licensing + Maintenance annual estimate: RM 140,000 — RM 520,000 / year.
+
+D. Maintenance (man-days & support)
+- Baseline SLA support (8x5) with specified response/resolution; vendor to propose 1–2 FTEs dedicated (or managed pool) — cost RM 180,000 — RM 360,000 / year (one FTE RM 90k–180k typical in Malaysia public-sector contracts; adjust to Enfrasys rates). This may overlap with subscription/support above if packaged.
+
+E. Five-year TCO ballpark (project + 5 years OPEX)
+- Low-end total (conservative, reuse components, optimized infra): RM 250k (one-time) + (RM 48k infra + RM 120k maintenance/licensing) * 5 = RM 250k + RM 840k = ~RM 1.09M.
+- High-end total (full custom, higher consumption): RM 650k (one-time) + (RM 216k infra + RM 400k maintenance/licensing) * 5 = RM 650k + RM 3.08M = ~RM 3.73M.
+- Provide this as a RANGE: approximately RM 1.1M — RM 3.8M over 5 years (project + 5-year subscription/support), subject to detailed sizing and EPF discounts/EA.
+
+Caveats and required verification steps (must do before final quote)
+- Use Azure Pricing Calculator with:
+  - Exact Document Intelligence consumption model (pages/month; custom model training calls).
+  - Exact App Service / Container / VM SKUs for UI and processing.
+  - Storage tiers and expected egress.
+  - Azure support plan (if Azure PS/support is required).
+  - Any committed-use discounts / enterprise agreements with EPF (EA) — this can materially lower costs.
+- Confirm region (Southeast Asia) SKU pricing and availability — my service citations are general product pages; per Decision Boundary you must verify region availability via Microsoft’s products-by-region page before the RFP submission (UNVERIFIED for exact region mapping in this response). Also confirm whether EPF will provide an Azure tenancy or expects vendor-managed subscription.
+- Confirm whether EPF already has Azure AD licenses (likely) and whether they will provide service accounts, SSO metadata, test endpoints, and SFTP gateway credentials during POC.
+
+Sources used for pricing/service verification:
+- Document Intelligence pricing & product: https://azure.microsoft.com/en-gb/pricing/details/document-intelligence/ . ([azure.microsoft.com](https://azure.microsoft.com/en-gb/pricing/details/document-intelligence/))
+- Document Intelligence quotas/limits: https://learn.microsoft.com/.../service-limits (Document Intelligence). ([docs.azure.cn](https://docs.azure.cn/en-us/ai-services/document-intelligence/service-limits))
+- Azure Blob Storage pricing: https://azure.microsoft.com/en-us/pricing/details/storage/blobs/ . ([azure.microsoft.com](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/))
+- Azure Key Vault pricing & product: https://azure.microsoft.com/en-us/pricing/details/key-vault/ and https://azure.microsoft.com/en-us/products/key-vault/ . ([azure.microsoft.com](https://azure.microsoft.com/en-us/pricing/details/key-vault/))
+- Azure AI Search / Foundry IQ pricing/sku: https://learn.microsoft.com/en-us/azure/search/search-sku-tier and https://azure.microsoft.com/en-us/pricing/details/search/ . ([learn.microsoft.com](https://learn.microsoft.com/en-us/azure/search/search-sku-tier))
+
+(If you want, I will run a follow-up detailed Azure Pricing Calculator session using precise assumptions — pages per month, storage retention, App Service tier — and return an itemized cost estimate that converts USD to RM using the day-of-quotation FX.)
+
+---
+
+## STEP 5 — Final Verdict
+
+Decision: CONDITIONAL GO
+
+Confidence: Medium
+
+Top 3 reasons to pursue
+1. Strong product fit: Microsoft Azure Document Intelligence + Azure platform map closely to EPF technical/functional requirements (OCR, key-value, table extraction, confidence scoring, integration, security controls).
+2. Enfrasys capability alignment: Enfrasys’ Microsoft-first strengths (Azure, M365, Power Platform) allow a compliant, single-vendor Microsoft stack and reduce integration friction with EPF’s Microsoft 365 and Azure AD environment.
+3. Strategic significance & scale: Public-sector reference (EPF is a high-profile Malaysian statutory body) — winning this could open more government opportunities and justify accelerated delivery with prebuilt accelerators.
+
+Top 3 risks to manage
+1. PII residency & PDPA constraint — EPF insists PII is not stored in cloud; solution must ensure transient processing and strict data purging/tokenization; requires detailed architecture and legal attestation from Microsoft/principal.
+2. Delivery SLA penalties and LAD exposure — RFP includes heavy penalties for SLA breaches; budget and operational readiness must include headroom for redundancy and incident response.
+3. Integration & test readiness — delayed access to EMS/ECM (Newgen) endpoints, sample flatfile formats, or slow approvals (EA/security) could jeopardize the 5-month delivery window.
+
+Three suggested immediate next steps (if you want Enfrasys to pursue)
+1. Validate partnerships & compliance documents
+   - Prepare Microsoft partner evidence (competency, references), ISO/SOC reports, and principal attestations (no data used for training). Obtain necessary back-to-back support letters from Microsoft (principal) or Document Intelligence product team.
+2. Run a detailed Azure pricing exercise
+   - I recommend we run the Azure Pricing Calculator with exact expected usage: 150,000 pages/year, concurrency targets to meet <3-minute SLA, storage retention (30 days + archive), App Service/AKS sizing, Azure Monitor retention. This will produce the firm RM pricing to place in Appendix C.
+   - I can do this if you provide desired assumptions (pages/month, retention days, concurrency).
+3. Prepare a technical POC plan + accelerators
+   - Assemble a two-week POC plan using a prebuilt Document Intelligence model and a lightweight HITL UI. Secure EPF sample documents (the RFP indicates samples will be provided during briefing). Demonstrate: ingestion (web/SFTP), extraction (field/table), confidence UI, and output flatfile to EMS stub. Keep POC focused on EPF’s mandatory metadata and PII handling approach.
+
+---
+
+If you want, next I will:
+- (A) Run a detailed Azure Pricing Calculator build (I will need confirmation of assumptions: pages/month, retention, expected concurrency, whether EPF has EA discounts).
+- (B) Draft a concise technical architecture diagram and a 5-month project plan with milestones and resource man-days, and map deliverables to RFP compliance items.
+- (C) Draft the content for the mandatory partner/principal letters and the security/compliance attestations required by EPF.
+
+Which of (A), (B), (C) do you want me to do next?
+
+===== END OF ANALYSIS =====

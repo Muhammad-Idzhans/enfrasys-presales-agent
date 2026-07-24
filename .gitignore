@@ -1,0 +1,5 @@
+backend-fastapi-dev/.env
+/data-sample
+
+__pycache__/
+*.pycs
