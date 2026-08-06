@@ -3,3 +3,6 @@ backend-fastapi-dev/.env
 
 __pycache__/
 *.pycs
+
+send.txt
+docker-command.txt
