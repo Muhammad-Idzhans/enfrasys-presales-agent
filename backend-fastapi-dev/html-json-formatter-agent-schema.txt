@@ -1,0 +1,181 @@
+{
+  "name": "presales_email_output",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "opportunity_id": {
+        "type": "string",
+        "description": "The opportunity ID provided in the input."
+      },
+      "opportunity_title": {
+        "type": "string",
+        "description": "Short project/opportunity title, max 100 chars."
+      },
+      "client_name": {
+        "type": "string"
+      },
+      "industry": {
+        "type": "string",
+        "description": "The client's business domain, e.g. 'Financial Services', 'Pension Fund', 'Healthcare', 'Manufacturing'. Do NOT put 'Public Sector' here."
+      },
+      "segment": {
+        "type": "string",
+        "enum": [
+          "Public Sector",
+          "Private Sector",
+          "Unknown"
+        ],
+        "description": "The client type. Must be exactly one of the allowed values. This is NOT the industry."
+      },
+      "submitted_date": {
+        "type": "string",
+        "description": "Date in YYYY-MM-DD format, or 'Not specified'."
+      },
+      "verdict": {
+        "type": "string",
+        "enum": [
+          "GO",
+          "NO-GO",
+          "CONDITIONAL"
+        ],
+        "description": "Exactly one value. Never add extra words like 'CONDITIONAL GO'."
+      },
+      "verdict_color": {
+        "type": "string",
+        "enum": [
+          "green",
+          "red",
+          "amber"
+        ],
+        "description": "green if GO, red if NO-GO, amber if CONDITIONAL."
+      },
+      "confidence_level": {
+        "type": "string",
+        "enum": [
+          "High",
+          "Medium",
+          "Low"
+        ]
+      },
+      "executive_summary": {
+        "type": "string",
+        "description": "2-3 sentences."
+      },
+      "feasibility_summary": {
+        "type": "string",
+        "description": "2-3 sentences."
+      },
+      "recommended_stack_microsoft": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "recommended_stack_external": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "partnership_required": {
+        "type": "string",
+        "enum": [
+          "Yes",
+          "No"
+        ]
+      },
+      "partnership_details": {
+        "type": "string"
+      },
+      "estimated_cost_range_myr": {
+        "type": "string",
+        "description": "A range in RM, e.g. 'RM 1.1M - RM 3.8M over 5 years'."
+      },
+      "cost_breakdown": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string"
+            },
+            "amount_myr": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "category",
+            "amount_myr",
+            "notes"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "top_reasons_to_pursue": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "top_risks": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "next_steps": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "references": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "url"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "opportunity_id",
+      "opportunity_title",
+      "client_name",
+      "industry",
+      "segment",
+      "submitted_date",
+      "verdict",
+      "verdict_color",
+      "confidence_level",
+      "executive_summary",
+      "feasibility_summary",
+      "recommended_stack_microsoft",
+      "recommended_stack_external",
+      "partnership_required",
+      "partnership_details",
+      "estimated_cost_range_myr",
+      "cost_breakdown",
+      "top_reasons_to_pursue",
+      "top_risks",
+      "next_steps",
+      "references"
+    ],
+    "additionalProperties": false
+  },
+  "strict": true
+}

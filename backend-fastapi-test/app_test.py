@@ -22,6 +22,7 @@ import io
 import time
 import json
 import uuid
+from datetime import datetime, timezone, timedelta
 
 # Load environment variables from .env file
 load_dotenv()
@@ -298,15 +299,17 @@ def process_extraction_job(job_id: str, opportunity_id: str):
         EXTRACT_JOBS[job_id]["file_names"] = file_names
         EXTRACT_JOBS[job_id]["file_count"] = len(file_names)
 
-        parts, total_pages, total_tables = [], 0, 0
+        parts = []
 
         for idx, fname in enumerate(file_names, start=1):
             EXTRACT_JOBS[job_id]["current_file"] = fname
             EXTRACT_JOBS[job_id]["files_completed"] = idx - 1
 
             extracted = _extract_single(opportunity_id, fname)
-            total_pages += extracted["page_count"]
-            total_tables += extracted["table_count"]
+            # Persist running totals into the job so a mid-way failure
+            # still reports what was already extracted (and billed).
+            EXTRACT_JOBS[job_id]["page_count"] += extracted["page_count"]
+            EXTRACT_JOBS[job_id]["table_count"] += extracted["table_count"]
 
             parts.append(
                 f"===== DOCUMENT {idx} OF {len(file_names)}: {fname} =====\n\n"
@@ -318,8 +321,6 @@ def process_extraction_job(job_id: str, opportunity_id: str):
             "status": "completed",
             "current_file": None,
             "files_completed": len(file_names),
-            "page_count": total_pages,
-            "table_count": total_tables,
             "markdown_content": "\n\n".join(parts),
         })
 
@@ -361,11 +362,13 @@ def get_extraction_status(job_id: str):
         raise HTTPException(status_code=404, detail=f"Extraction job not found: {job_id}")
     return {
         "job_id": job_id,
-        "status": job["status"], # queued | extracting | completed | failed
+        "status": job["status"],          # queued | extracting | completed | failed
         "opportunity_id": job["opportunity_id"],
         "file_count": job["file_count"],
         "files_completed": job["files_completed"],
         "current_file": job["current_file"],
+        "page_count": job["page_count"],       # ← partial pages already extracted/billed
+        "table_count": job["table_count"],
         "error": job["error"],
     }
 
@@ -402,6 +405,13 @@ class AnalyzeRequest(BaseModel):
     opportunity_id: str
     file_names: List[str] = []
     markdown_content: str
+    page_count: int = 0
+    table_count: int = 0
+    # Who triggered this from Copilot Studio (via SharePoint context).
+    # Metadata only — never interpolated into the agent prompts below.
+    submitted_by_name: str = "Not specified"
+    submitted_by_email: str = "Not specified"
+    copilot_credit: str = "Not specified"
 
 # Simple in-memory job store (fine for dev/testing).
 # For production, replace with Cosmos DB or Azure Table Storage.
@@ -413,7 +423,7 @@ EXTRACT_JOBS: dict = {}
 # ---------------------------------------------------------------------
 # Helper: Run a Foundry agent and wait for its text response
 # ---------------------------------------------------------------------
-def run_agent(agent_ref: str, user_message: str, timeout_seconds: int = 420) -> str:
+def run_agent(agent_ref: str, user_message: str, timeout_seconds: int = 420) -> dict:    
     """
     Call a published Foundry agent using the DDG-proven pattern:
     agent_ref format is 'agent-name:version' (e.g. 'presales-analyst-agent:4').
@@ -434,7 +444,16 @@ def run_agent(agent_ref: str, user_message: str, timeout_seconds: int = 420) -> 
             }
         }
     )
-    return response.output_text
+    # return response.output_text
+    usage = getattr(response, "usage", None)
+    input_details = getattr(usage, "input_tokens_details", None) if usage else None
+
+    return {
+        "text": response.output_text,
+        "input_tokens": getattr(usage, "input_tokens", 0) if usage else 0,
+        "output_tokens": getattr(usage, "output_tokens", 0) if usage else 0,
+        "cached_tokens": getattr(input_details, "cached_tokens", 0) if input_details else 0,
+    }
 
 
 # ---------------------------------------------------------------------
@@ -461,7 +480,14 @@ def process_analysis_job(job_id: str, payload: AnalyzeRequest):
 
         ===== END OF EXTRACTED CONTENT =====
         """
-        presalesAnalystAgent_output = run_agent(PRESALES_ANALYST_AGENT, presalesAnalystAgent_input)
+        agent1_result = run_agent(PRESALES_ANALYST_AGENT, presalesAnalystAgent_input)
+        presalesAnalystAgent_output = agent1_result["text"]
+
+        JOBS[job_id]["token_usage"]["presales_analyst"] = {
+            "input_tokens": agent1_result["input_tokens"],
+            "output_tokens": agent1_result["output_tokens"],
+            "cached_tokens": agent1_result["cached_tokens"],
+        }
 
         JOBS[job_id]["status"] = "formatting"
 
@@ -477,7 +503,14 @@ def process_analysis_job(job_id: str, payload: AnalyzeRequest):
 
         ===== END OF ANALYSIS =====
         """
-        htmlJsonFormatterAgent_output = run_agent(HTML_JSON_FORMATTER_AGENT, htmlJsonFormatterAgent_input)
+        agent2_result = run_agent(HTML_JSON_FORMATTER_AGENT, htmlJsonFormatterAgent_input)
+        htmlJsonFormatterAgent_output = agent2_result["text"]
+
+        JOBS[job_id]["token_usage"]["json_formatter"] = {
+            "input_tokens": agent2_result["input_tokens"],
+            "output_tokens": agent2_result["output_tokens"],
+            "cached_tokens": agent2_result["cached_tokens"],
+        }
 
         # ---- Parse Agent 2 JSON (strip code fences if any) ----
         cleaned = htmlJsonFormatterAgent_output.strip()
@@ -512,6 +545,17 @@ def start_analysis(payload: AnalyzeRequest, background_tasks: BackgroundTasks):
         "opportunity_id": payload.opportunity_id,
         "email_json": None,
         "error": None,
+        "page_count": payload.page_count,
+        "table_count": payload.table_count,
+        "submitted_by_name": payload.submitted_by_name,
+        "submitted_by_email": payload.submitted_by_email,
+        "requested_at": datetime.now(timezone(timedelta(hours=8))).strftime("%d-%m-%Y %H:%M:%S"),
+        "file_name": ", ".join(payload.file_names) if payload.file_names else "Not specified",
+        "copilot_credit": payload.copilot_credit,
+        "token_usage": {
+            "presales_analyst": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0},
+            "json_formatter":   {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0},
+        },
     }
     background_tasks.add_task(process_analysis_job, job_id, payload)
     return {"job_id": job_id, "status": "queued"}
@@ -530,6 +574,12 @@ def get_analysis_status(job_id: str):
         "job_id": job_id,
         "status": job["status"],   # queued | analyzing | formatting | completed | failed
         "opportunity_id": job["opportunity_id"],
+        "submitted_by_name": job.get("submitted_by_name", "Not specified"),
+        "submitted_by_email": job.get("submitted_by_email", "Not specified"),
+        "page_count": job.get("page_count", 0),
+        "table_count": job.get("table_count", 0),
+        "copilot_credit": job.get("copilot_credit", "Not specified"),
+        "token_usage": job.get("token_usage"),   # ← partial spend visible even if failed
         "error": job["error"],
     }
 
@@ -551,6 +601,14 @@ def get_analysis_result(job_id: str):
         "job_id": job_id,
         "status": "completed",
         "opportunity_id": job["opportunity_id"],
+        "submitted_by_name": job.get("submitted_by_name", "Not specified"),
+        "submitted_by_email": job.get("submitted_by_email", "Not specified"),
+        "requested_at": job.get("requested_at"),
+        "file_name": job.get("file_name", "Not specified"),
+        "page_count": job["page_count"],
+        "table_count": job["table_count"],
+        "copilot_credit": job.get("copilot_credit", "Not specified"),
+        "token_usage": job["token_usage"],
         "email_json": job["email_json"],
     }
 
@@ -561,6 +619,9 @@ def get_analysis_result(job_id: str):
 class ConvertHtmlRequest(BaseModel):
     email_json: dict
     file_name: str = "Not specified"
+    submitted_by_name: str = "Not specified"
+    submitted_by_email: str = "Not specified"
+    requested_at: str = "Not specified"
 
 
 # ---------------------------------------------------------------------
@@ -573,7 +634,13 @@ def convert_html(payload: ConvertHtmlRequest):
     final email envelope: opportunity_id, file_name, email_subject, email_body (HTML).
     """
     try:
-        return build_email_payload(payload.email_json, payload.file_name)
+        return build_email_payload(
+            payload.email_json,
+            payload.file_name,
+            payload.submitted_by_name,
+            payload.submitted_by_email,
+            payload.requested_at,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"HTML conversion error: {str(e)}")
 
@@ -607,7 +674,15 @@ EMAIL_HTML_TEMPLATE = """<!DOCTYPE html>
       <h1 style="margin:0 0 6px 0; font-size:19px; color:#0f4c81;">{{ opportunity_title }}</h1>
       <p style="margin:0; font-size:14px; color:#52606d;"><strong>{{ client_name }}</strong></p>
       <p style="margin:4px 0 0 0; font-size:13px; color:#52606d;">{{ industry }} &nbsp;|&nbsp; {{ segment }}</p>
-      <p style="margin:4px 0 0 0; font-size:12px; color:#9aa5b1;">Submitted: {{ submitted_date }}</p>
+    </td></tr>
+
+    <tr><td style="padding:0 32px 16px 32px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f4f8; border-radius:6px;"><tr>
+        <td style="padding:10px 16px; font-size:12px; color:#52606d;">
+          Requested by: <strong>{{ submitted_by_name }}</strong> ({{ submitted_by_email }})<br/>
+          Requested at: {{ requested_at }}
+        </td>
+      </tr></table>
     </td></tr>
 
     <tr><td style="padding:16px 32px 8px 32px;">
@@ -684,6 +759,23 @@ EMAIL_HTML_TEMPLATE = """<!DOCTYPE html>
       </ol>
     </td></tr>
 
+    {% if client_questions %}
+    <tr><td style="padding:8px 32px 16px 32px;">
+      <h2 style="margin:0 0 8px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; color:#0f4c81;">Questions to Ask the Client</h2>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:13px;">
+        <tr style="background-color:#0f4c81; color:#ffffff;">
+          <td style="padding:8px 12px; width:45%;">Question</td><td style="padding:8px 12px;">Why We're Asking</td>
+        </tr>
+        {% for q in client_questions %}
+        <tr style="border-bottom:1px solid #e4e7eb; {% if loop.index is even %}background-color:#f7f9fb;{% endif %}">
+          <td style="padding:8px 12px; vertical-align:top;">{{ q.question }}</td>
+          <td style="padding:8px 12px; color:#52606d; vertical-align:top;">{{ q.reason }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </td></tr>
+    {% endif %}
+
     <tr><td style="padding:8px 32px 24px 32px;">
       <h2 style="margin:0 0 8px 0; font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:#9aa5b1;">References</h2>
       <ul style="margin:0 0 0 18px; padding:0; font-size:12.5px; line-height:1.6;">
@@ -706,7 +798,12 @@ EMAIL_HTML_TEMPLATE = """<!DOCTYPE html>
 # ---------------------------------------------------------------------
 # Function 1: Render email_json into full HTML
 # ---------------------------------------------------------------------
-def render_html(email_json: dict) -> str:
+def render_html(
+    email_json: dict,
+    submitted_by_name: str = "Not specified",
+    submitted_by_email: str = "Not specified",
+    requested_at: str = "Not specified",
+) -> str:
     """Inject the email_json values into the HTML template. Returns full HTML string."""
     # Map verdict_color word -> hex for the banner
     color_map = {"green": "#2e7d32", "amber": "#f9a825", "red": "#c62828"}
@@ -714,6 +811,9 @@ def render_html(email_json: dict) -> str:
 
     # Safe defaults so the template never crashes on a missing key
     safe_data = {
+        "submitted_by_name": submitted_by_name,
+        "submitted_by_email": submitted_by_email,
+        "requested_at": requested_at,
         "opportunity_id": email_json.get("opportunity_id", ""),
         "opportunity_title": email_json.get("opportunity_title", "Presales Assessment"),
         "client_name": email_json.get("client_name", "Not specified"),
@@ -733,6 +833,7 @@ def render_html(email_json: dict) -> str:
         "top_reasons_to_pursue": email_json.get("top_reasons_to_pursue", []),
         "top_risks": email_json.get("top_risks", []),
         "next_steps": email_json.get("next_steps", []),
+        "client_questions": email_json.get("client_questions", []),
         "references": email_json.get("references", []),
     }
 
@@ -743,10 +844,15 @@ def render_html(email_json: dict) -> str:
 # ---------------------------------------------------------------------
 # Function 2: Build the final email envelope for Power Automate
 # ---------------------------------------------------------------------
-def build_email_payload(email_json: dict, file_name: str) -> dict:
+def build_email_payload(
+    email_json: dict,
+    file_name: str,
+    submitted_by_name: str = "Not specified",
+    submitted_by_email: str = "Not specified",
+    requested_at: str = "Not specified",
+) -> dict:
     """Wrap the rendered HTML into the final email envelope."""
-    html_body = render_html(email_json)
-    verdict = email_json.get("verdict", "")
+    html_body = render_html(email_json, submitted_by_name, submitted_by_email, requested_at)
     title = email_json.get("opportunity_title", "Presales Assessment")
 
     return {
