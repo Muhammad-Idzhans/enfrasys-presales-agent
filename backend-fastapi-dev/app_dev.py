@@ -549,7 +549,7 @@ def start_analysis(payload: AnalyzeRequest, background_tasks: BackgroundTasks):
         "table_count": payload.table_count,
         "submitted_by_name": payload.submitted_by_name,
         "submitted_by_email": payload.submitted_by_email,
-        "requested_at": datetime.now(timezone(timedelta(hours=8))).strftime("%d-%m-%Y %H:%M:%S"),
+        "requested_at": datetime.now(timezone(timedelta(hours=8))).strftime("%d %B %Y | %I:%M%p"),
         "file_name": ", ".join(payload.file_names) if payload.file_names else "Not specified",
         "copilot_credit": payload.copilot_credit,
         "token_usage": {
