@@ -305,17 +305,26 @@ def process_extraction_job(job_id: str, opportunity_id: str):
             EXTRACT_JOBS[job_id]["current_file"] = fname
             EXTRACT_JOBS[job_id]["files_completed"] = idx - 1
 
-            extracted = _extract_single(opportunity_id, fname)
-            # Persist running totals into the job so a mid-way failure
-            # still reports what was already extracted (and billed).
-            EXTRACT_JOBS[job_id]["page_count"] += extracted["page_count"]
-            EXTRACT_JOBS[job_id]["table_count"] += extracted["table_count"]
+            try:
+                extracted = _extract_single(opportunity_id, fname)
+                # Persist running totals into the job so a mid-way failure
+                # still reports what was already extracted (and billed).
+                EXTRACT_JOBS[job_id]["page_count"] += extracted["page_count"]
+                EXTRACT_JOBS[job_id]["table_count"] += extracted["table_count"]
 
-            parts.append(
-                f"===== DOCUMENT {idx} OF {len(file_names)}: {fname} =====\n\n"
-                f"{extracted['markdown']}\n\n"
-                f"===== END OF DOCUMENT {idx}: {fname} ====="
-            )
+                parts.append(
+                    f"===== DOCUMENT {idx} OF {len(file_names)}: {fname} =====\n\n"
+                    f"{extracted['markdown']}\n\n"
+                    f"===== END OF DOCUMENT {idx}: {fname} ====="
+                )
+            except Exception as doc_error:
+                print(f"Skipping file {fname} due to extraction error: {doc_error}")
+                parts.append(
+                    f"===== DOCUMENT {idx} OF {len(file_names)}: {fname} =====\n\n"
+                    f"[ERROR] Failed to extract content from this document. Format might be unsupported (e.g., .xls) or corrupted.\n"
+                    f"Details: {str(doc_error)}\n\n"
+                    f"===== END OF DOCUMENT {idx}: {fname} ====="
+                )
 
         EXTRACT_JOBS[job_id].update({
             "status": "completed",
