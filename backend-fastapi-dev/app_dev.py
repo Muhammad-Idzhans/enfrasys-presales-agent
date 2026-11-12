@@ -300,6 +300,7 @@ def process_extraction_job(job_id: str, opportunity_id: str):
         EXTRACT_JOBS[job_id]["file_count"] = len(file_names)
 
         parts = []
+        skipped_files = []
 
         for idx, fname in enumerate(file_names, start=1):
             EXTRACT_JOBS[job_id]["current_file"] = fname
@@ -319,6 +320,7 @@ def process_extraction_job(job_id: str, opportunity_id: str):
                 )
             except Exception as doc_error:
                 print(f"Skipping file {fname} due to extraction error: {doc_error}")
+                skipped_files.append(fname)
                 parts.append(
                     f"===== DOCUMENT {idx} OF {len(file_names)}: {fname} =====\n\n"
                     f"[ERROR] Failed to extract content from this document. Format might be unsupported (e.g., .xls) or corrupted.\n"
@@ -331,6 +333,7 @@ def process_extraction_job(job_id: str, opportunity_id: str):
             "current_file": None,
             "files_completed": len(file_names),
             "markdown_content": "\n\n".join(parts),
+            "skipped_files": skipped_files,
         })
 
     except Exception as e:
@@ -355,6 +358,7 @@ def start_extraction(opportunity_id: str, background_tasks: BackgroundTasks):
         "page_count": 0,
         "table_count": 0,
         "markdown_content": None,
+        "skipped_files": [],
         "error": None,
     }
     background_tasks.add_task(process_extraction_job, job_id, opportunity_id)
@@ -404,6 +408,7 @@ def get_extraction_result(job_id: str):
         "table_count": job["table_count"],
         "markdown_length": len(job["markdown_content"] or ""),
         "markdown_content": job["markdown_content"],
+        "skipped_files": job.get("skipped_files", []),
     }
 
 
@@ -413,6 +418,7 @@ def get_extraction_result(job_id: str):
 class AnalyzeRequest(BaseModel):
     opportunity_id: str
     file_names: List[str] = []
+    skipped_files: List[str] = []
     markdown_content: str
     page_count: int = 0
     table_count: int = 0
@@ -560,6 +566,7 @@ def start_analysis(payload: AnalyzeRequest, background_tasks: BackgroundTasks):
         "submitted_by_email": payload.submitted_by_email,
         "requested_at": datetime.now(timezone(timedelta(hours=8))).strftime("%d %B %Y | %I:%M%p"),
         "file_name": ", ".join(payload.file_names) if payload.file_names else "Not specified",
+        "skipped_files": payload.skipped_files,
         "copilot_credit": payload.copilot_credit,
         "token_usage": {
             "presales_analyst": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0},
@@ -614,6 +621,7 @@ def get_analysis_result(job_id: str):
         "submitted_by_email": job.get("submitted_by_email", "Not specified"),
         "requested_at": job.get("requested_at"),
         "file_name": job.get("file_name", "Not specified"),
+        "skipped_files": job.get("skipped_files", []),
         "page_count": job["page_count"],
         "table_count": job["table_count"],
         "copilot_credit": job.get("copilot_credit", "Not specified"),
@@ -628,6 +636,7 @@ def get_analysis_result(job_id: str):
 class ConvertHtmlRequest(BaseModel):
     email_json: dict
     file_name: str = "Not specified"
+    skipped_files: List[str] = []
     submitted_by_name: str = "Not specified"
     submitted_by_email: str = "Not specified"
     requested_at: str = "Not specified"
@@ -646,6 +655,7 @@ def convert_html(payload: ConvertHtmlRequest):
         return build_email_payload(
             payload.email_json,
             payload.file_name,
+            payload.skipped_files,
             payload.submitted_by_name,
             payload.submitted_by_email,
             payload.requested_at,
@@ -699,23 +709,68 @@ EMAIL_HTML_TEMPLATE = """<!DOCTYPE html>
       <p style="margin:0; font-size:14px; line-height:1.6;">{{ executive_summary }}</p>
     </td></tr>
 
+    <tr><td style="padding:8px 32px 8px 32px;">
+      <h2 style="margin:0 0 8px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; color:#0f4c81;">Problem Statement</h2>
+      <p style="margin:0; font-size:14px; line-height:1.6;">{{ problem_statement }}</p>
+    </td></tr>
+
+    <tr><td style="padding:8px 32px 16px 32px;">
+      <h2 style="margin:0 0 8px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; color:#0f4c81;">What the Client Wants</h2>
+      {% if client_requirements %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse; font-size:13px;">
+        <tr style="background-color:#0f4c81; color:#ffffff;">
+          <td style="padding:8px 12px; width:38%;">Requirement</td><td style="padding:8px 12px;">Technical Detail</td>
+        </tr>
+        {% for req in client_requirements %}
+        <tr style="border-bottom:1px solid #e4e7eb; {% if loop.index is even %}background-color:#f7f9fb;{% endif %}">
+          <td style="padding:8px 12px; vertical-align:top; font-weight:600; color:#334e68;">{{ req.requirement }}</td>
+          <td style="padding:8px 12px; color:#52606d; vertical-align:top;">{{ req.detail }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}
+      <p style="margin:0; font-size:14px; color:#52606d;">Not specified.</p>
+      {% endif %}
+    </td></tr>
+
     <tr><td style="padding:8px 32px 16px 32px;">
       <h2 style="margin:0 0 8px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; color:#0f4c81;">Feasibility</h2>
       <p style="margin:0; font-size:14px; line-height:1.6;">{{ feasibility_summary }}</p>
     </td></tr>
 
     <tr><td style="padding:8px 32px 16px 32px;">
-      <h2 style="margin:0 0 8px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; color:#0f4c81;">Recommended Tech Stack</h2>
-      <p style="margin:0 0 6px 0; font-size:13px; font-weight:600; color:#334e68;">Microsoft-first:</p>
-      <ul style="margin:0 0 12px 18px; padding:0; font-size:14px; line-height:1.7;">
-        {% for item in recommended_stack_microsoft %}<li>{{ item }}</li>{% endfor %}
-      </ul>
-      <p style="margin:0 0 6px 0; font-size:13px; font-weight:600; color:#334e68;">External:</p>
+      <h2 style="margin:0 0 12px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; color:#0f4c81;">Recommended Tech Stack</h2>
+      <p style="margin:0 0 8px 0; font-size:13px; font-weight:600; color:#334e68;">Microsoft-first:</p>
+      {% for item in recommended_stack_microsoft %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 10px 0; background-color:#f7f9fb; border-left:3px solid #0f4c81; border-radius:4px;"><tr>
+        <td style="padding:10px 14px;">
+          <p style="margin:0 0 3px 0; font-size:14px; font-weight:700; color:#0f4c81;">{{ item.name }}</p>
+          <p style="margin:0 0 4px 0; font-size:13px; color:#334e68;"><em>{{ item.purpose }}</em></p>
+          <p style="margin:0; font-size:13px; line-height:1.55; color:#52606d;"><strong style="color:#334e68;">Why:</strong> {{ item.justification }}</p>
+        </td>
+      </tr></table>
+      {% endfor %}
+      <p style="margin:12px 0 8px 0; font-size:13px; font-weight:600; color:#334e68;">External:</p>
       {% if recommended_stack_external %}
-      <ul style="margin:0 0 0 18px; padding:0; font-size:14px; line-height:1.7;">
-        {% for item in recommended_stack_external %}<li>{{ item }}</li>{% endfor %}
-      </ul>
+      {% for item in recommended_stack_external %}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 10px 0; background-color:#fdf6f0; border-left:3px solid #c47f0f; border-radius:4px;"><tr>
+        <td style="padding:10px 14px;">
+          <p style="margin:0 0 3px 0; font-size:14px; font-weight:700; color:#8a5a0b;">{{ item.name }}</p>
+          <p style="margin:0 0 4px 0; font-size:13px; color:#334e68;"><em>{{ item.purpose }}</em></p>
+          <p style="margin:0; font-size:13px; line-height:1.55; color:#52606d;"><strong style="color:#334e68;">Why:</strong> {{ item.justification }}</p>
+        </td>
+      </tr></table>
+      {% endfor %}
       {% else %}<p style="margin:0; font-size:14px; color:#52606d;">None required.</p>{% endif %}
+    </td></tr>
+
+    <tr><td style="padding:0 32px 16px 32px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#e8f4fd; border-radius:6px; border-left:4px solid #0f4c81;"><tr>
+        <td style="padding:12px 16px; font-size:13.5px; line-height:1.6; color:#334e68;">
+          <strong style="color:#0f4c81;">How this solves the problem:</strong><br>
+          {{ solution_mapping }}
+        </td>
+      </tr></table>
     </td></tr>
 
     <tr><td style="padding:8px 32px 16px 32px;">
@@ -747,7 +802,7 @@ EMAIL_HTML_TEMPLATE = """<!DOCTYPE html>
     <tr><td style="padding:8px 32px 16px 32px;">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr valign="top">
         <td width="50%" style="padding-right:10px;">
-          <h2 style="margin:0 0 8px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; color:#2e7d32;">Reasons to Pursue</h2>
+          <h2 style="margin:0 0 8px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.5px; color:{% if verdict == 'NO-GO' %}#c62828{% else %}#2e7d32{% endif %};">{% if verdict == 'NO-GO' %}Reasons Not to Pursue{% else %}Reasons to Pursue{% endif %}</h2>
           <ul style="margin:0 0 0 18px; padding:0; font-size:13.5px; line-height:1.6;">
             {% for r in top_reasons_to_pursue %}<li>{{ r }}</li>{% endfor %}
           </ul>
@@ -792,6 +847,20 @@ EMAIL_HTML_TEMPLATE = """<!DOCTYPE html>
       </ul>
     </td></tr>
 
+    {% if skipped_files %}
+    <tr><td style="padding:8px 32px 16px 32px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#fff3cd; border:1px solid #ffc107; border-radius:6px;">
+        <tr><td style="padding:12px 16px;">
+          <p style="margin:0 0 6px 0; font-size:13px; font-weight:700; color:#856404;">⚠ The following document(s) could not be processed:</p>
+          <ul style="margin:0 0 0 18px; padding:0; font-size:13px; line-height:1.7; color:#856404;">
+            {% for sf in skipped_files %}<li>{{ sf }}</li>{% endfor %}
+          </ul>
+          <p style="margin:8px 0 0 0; font-size:12px; color:#856404;">These files may be in an unsupported format (e.g., .xls instead of .xlsx) or corrupted. Their content was excluded from this assessment.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+    {% endif %}
+
     <tr><td style="background-color:#f0f4f8; padding:16px 32px; text-align:center; font-size:11px; color:#9aa5b1;">
       This assessment was generated by the Enfrasys Presales AI Agent for internal review.<br>
       Please validate all figures before client submission.
@@ -809,6 +878,7 @@ EMAIL_HTML_TEMPLATE = """<!DOCTYPE html>
 # ---------------------------------------------------------------------
 def render_html(
     email_json: dict,
+    skipped_files: list = None,
     submitted_by_name: str = "Not specified",
     submitted_by_email: str = "Not specified",
     requested_at: str = "Not specified",
@@ -832,9 +902,12 @@ def render_html(
         "verdict": email_json.get("verdict", "N/A"),
         "confidence_level": email_json.get("confidence_level", "N/A"),
         "executive_summary": email_json.get("executive_summary", ""),
+        "problem_statement": email_json.get("problem_statement", ""),
+        "client_requirements": email_json.get("client_requirements", []),
         "feasibility_summary": email_json.get("feasibility_summary", ""),
         "recommended_stack_microsoft": email_json.get("recommended_stack_microsoft", []),
         "recommended_stack_external": email_json.get("recommended_stack_external", []),
+        "solution_mapping": email_json.get("solution_mapping", ""),
         "partnership_required": email_json.get("partnership_required", "Not specified"),
         "partnership_details": email_json.get("partnership_details", ""),
         "estimated_cost_range_myr": email_json.get("estimated_cost_range_myr", "Not specified"),
@@ -844,6 +917,7 @@ def render_html(
         "next_steps": email_json.get("next_steps", []),
         "client_questions": email_json.get("client_questions", []),
         "references": email_json.get("references", []),
+        "skipped_files": skipped_files or [],
     }
 
     template = Template(EMAIL_HTML_TEMPLATE)
@@ -856,12 +930,13 @@ def render_html(
 def build_email_payload(
     email_json: dict,
     file_name: str,
+    skipped_files: list = None,
     submitted_by_name: str = "Not specified",
     submitted_by_email: str = "Not specified",
     requested_at: str = "Not specified",
 ) -> dict:
     """Wrap the rendered HTML into the final email envelope."""
-    html_body = render_html(email_json, submitted_by_name, submitted_by_email, requested_at)
+    html_body = render_html(email_json, skipped_files, submitted_by_name, submitted_by_email, requested_at)
     title = email_json.get("opportunity_title", "Presales Assessment")
 
     return {
