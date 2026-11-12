@@ -16,7 +16,7 @@
       },
       "industry": {
         "type": "string",
-        "description": "The client's business domain, e.g. 'Financial Services', 'Pension Fund', 'Healthcare', 'Manufacturing'. Do NOT put 'Public Sector' here."
+        "description": "The client's business domain, e.g. 'Financial Services', 'Pension Fund', 'Healthcare'. Do NOT put 'Public Sector' here."
       },
       "segment": {
         "type": "string",
@@ -61,6 +61,32 @@
         "type": "string",
         "description": "2-3 sentences."
       },
+      "problem_statement": {
+        "type": "string",
+        "description": "Concise 2-3 sentence summary of what the customer fundamentally wants to solve."
+      },
+      "client_requirements": {
+        "type": "array",
+        "description": "Detailed technical breakdown of what the client wants (from analyst STEP 1b).",
+        "items": {
+          "type": "object",
+          "properties": {
+            "requirement": {
+              "type": "string",
+              "description": "Short label of a specific client ask."
+            },
+            "detail": {
+              "type": "string",
+              "description": "The technical substance behind the requirement."
+            }
+          },
+          "required": [
+            "requirement",
+            "detail"
+          ],
+          "additionalProperties": false
+        }
+      },
       "feasibility_summary": {
         "type": "string",
         "description": "2-3 sentences."
@@ -68,14 +94,55 @@
       "recommended_stack_microsoft": {
         "type": "array",
         "items": {
-          "type": "string"
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Official current Microsoft service name."
+            },
+            "purpose": {
+              "type": "string",
+              "description": "What the service does."
+            },
+            "justification": {
+              "type": "string",
+              "description": "Why it is recommended for THIS client, tied to a specific requirement."
+            }
+          },
+          "required": [
+            "name",
+            "purpose",
+            "justification"
+          ],
+          "additionalProperties": false
         }
       },
       "recommended_stack_external": {
         "type": "array",
         "items": {
-          "type": "string"
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "purpose": {
+              "type": "string"
+            },
+            "justification": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "purpose",
+            "justification"
+          ],
+          "additionalProperties": false
         }
+      },
+      "solution_mapping": {
+        "type": "string",
+        "description": "How the recommended stack as a whole solves the customer's Problem Statement."
       },
       "partnership_required": {
         "type": "string",
@@ -85,7 +152,8 @@
         ]
       },
       "partnership_details": {
-        "type": "string"
+        "type": "string",
+        "description": "If a partner is needed: why, the kind of partner to look for (no company names), and Enfrasys' role. 3-4 short sentences."
       },
       "estimated_cost_range_myr": {
         "type": "string",
@@ -132,6 +200,25 @@
           "type": "string"
         }
       },
+      "client_questions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "question",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      },
       "references": {
         "type": "array",
         "items": {
@@ -163,9 +250,12 @@
       "verdict_color",
       "confidence_level",
       "executive_summary",
+      "problem_statement",
+      "client_requirements",
       "feasibility_summary",
       "recommended_stack_microsoft",
       "recommended_stack_external",
+      "solution_mapping",
       "partnership_required",
       "partnership_details",
       "estimated_cost_range_myr",
@@ -173,6 +263,7 @@
       "top_reasons_to_pursue",
       "top_risks",
       "next_steps",
+      "client_questions",
       "references"
     ],
     "additionalProperties": false
